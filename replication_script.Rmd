@@ -1,0 +1,270 @@
+---
+title: "Tayssir paper analysis"
+output: html_notebook
+---
+# Setup
+
+```{r set global variables}
+rm(list = ls())
+NUM_TREES <- 1000
+set.seed(99)
+```
+
+
+```{r}
+source("Data set-up.R")
+source("helpers.R")
+```
+
+
+```{r load data and packages}
+library(tidyverse)
+library(grf)
+library(policytree)
+library(mlr)
+library(cowplot)
+library(magrittr)
+library(broom)
+library(xtable)
+
+morocco_cont <- read_rds('morocco2.rds')
+
+morocco <- read_rds('morocco2.rds')
+
+morocco_selected <- morocco %>%
+  select(
+    ends_with("_self"),
+    matches("^a.*_1"),
+    matches("^[b|f|g|h|j|k]\\d"),
+    benef,
+    monthly_spending,
+    program_knowledge,
+    schoolunitid,
+    maths_results,
+    group,
+    hhid
+         )
+
+```
+
+
+```{r define variables}
+X_vars <- c('a4_1', 'a13_1', 'monthly_spending', 'a15_1_1', 'a13_self', 'a4_self', 'benef')
+
+Y_vars <- c("maths_results")
+```
+
+```{r}
+# big_covars <- morocco %>% select(-hhid, -maths_results, -group, -program_knowledge, -schoolid)
+```
+
+# Descriptive stats
+
+```{r figure 1 maths scores hist}
+morocco %>%
+  ggplot(aes(x= maths_results)) +
+    geom_histogram(bins = 8) +
+    labs(x = "Maths results (sum of normalised components)" , y = "Count") +
+    theme_classic()
+
+ggsave("paper_outputs/figure1.png")
+```
+
+```{r maths scores by category}
+maths <- read_dta("LCT Morroco/cct_aser_an.dta")
+
+results_table <- maths %>%
+  select(t6, t5_2, t4_2, t3_2) %>%
+  transmute(division = t6 == 1,
+            subtraction = t5_2 == 2,
+            number_recog = t4_2 ==5,
+            digit_recog = t3_2 == 5) %>%
+  gather(key = "Indicator", "Score") %>%
+  group_by(Indicator) %>%
+  mutate(Indicator = factor(Indicator, level = c("digit_recog", "number_recog", "subtraction", "division"), ordered = TRUE)) %>%
+  summarise(`Percent perfect` = paste0(round(mean(Score, na.rm = T) * 100,2), "%"))
+
+results_table %>%
+  xtable(caption = "Percentage of children receiving a perfect score for each category") %>%
+  print(type = "latex", file="paper_outputs/table1.tex")
+```
+
+
+# ATE for labelled vs conditioned
+
+```{r fit control causal forest}
+
+main_forest <- multi_arm_causal_forest (
+  morocco_selected %>% 
+    select(e1_self:monthly_spending), 
+  morocco$maths_results, morocco$group %>% as.factor(),
+  num.trees = NUM_TREES,
+  clusters = morocco$schoolunitid
+  )
+```
+
+```{r}
+small_forest <- basu_forest(X = morocco_selected %>% 
+    select(e1_self:monthly_spending), 
+  Y = morocco$maths_results, W = morocco$group %>% as.factor(),
+  num.trees = NUM_TREES,
+  clusters = morocco$schoolunitid,
+  iters = 3)
+```
+
+
+```{r}
+main_ate <- average_treatment_effect(main_forest)
+main_plots <- map(1:length(main_ate$contrast), function(x) {
+  ate_est <- main_ate[x,][c("estimate", "std.err")] %>% unlist()
+  preds <- main_forest$predictions[,x]
+  qplot(x = preds) + 
+    geom_vline(xintercept = 0, linetype = "dashed") +
+    geom_vline(xintercept = ate_est['estimate'], color = "blue") +
+    scale_y_continuous(limits = c(0, 600)) +
+    annotate("rect", 
+             xmin = ate_est['estimate'] - (1.96 * ate_est['std.err']), 
+             xmax = ate_est['estimate'] + (1.96 * ate_est['std.err']), ymin = 0, ymax = Inf,
+             alpha = .1,fill = "blue") +
+    ggtitle("Contrast ", paste0(main_ate$contrast[x])) + 
+    labs(x = "Predictions", y = "Counts")
+})
+save_plot('paper_outputs/figure2.png', cowplot::plot_grid(plotlist = main_plots), base_height = 5)
+```
+# Small forest analysis
+
+```{r}
+main_forest <- small_forest
+average_treatment_effect(small_forest)
+```
+
+```{r}
+indiv_ate <- average_treatment_effect(small_forest)
+indiv_plots <- map(1:length(indiv_ate$contrast), function(x) {
+  ate_est <- indiv_ate[x,][c("estimate", "std.err")] %>% unlist()
+  preds <- small_forest$predictions[,x]
+  qplot(x = preds) + 
+    geom_vline(xintercept = 0, linetype = "dashed") +
+    geom_vline(xintercept = ate_est['estimate'], color = "blue") +
+    scale_y_continuous(limits = c(0, 600)) +
+    annotate("rect", 
+             xmin = ate_est['estimate'] - (1.96 * ate_est['std.err']), 
+             xmax = ate_est['estimate'] + (1.96 * ate_est['std.err']), ymin = 0, ymax = Inf,
+             alpha = .1,fill = "blue") +
+    ggtitle("Contrast ", paste0(indiv_ate$contrast[x])) + 
+    labs(x = "Predictions", y = "Counts")
+})
+save_plot('paper_outputs/contrasts.png', cowplot::plot_grid(plotlist = indiv_plots), base_height = 5)
+```
+
+
+# Variable importance analysis
+
+```{r}
+all_labels <- joined %>% 
+  labelled::get_variable_labels() %>%
+  unlist()
+
+test <- get_var_imp(main_forest) %>%
+  arrange(desc(Importance))
+
+test$Label <- get_var_labels(baseline1, test$Variable)
+
+test %>% select(Label, Variable, Importance)
+```
+
+```{r}
+test1 <- get_var_imp(small_forest) %>%
+  arrange(desc(Importance))
+
+test1$Label <- get_var_labels(baseline1, test1$Variable)
+
+test1 %>% select(Label, Variable, Importance)
+```
+
+```{r}
+small_forest <- basu_forest(X = morocco_selected %>% 
+    select(e1_self:monthly_spending), 
+  Y = morocco$maths_results, W = morocco$group %>% as.factor(),
+  num.trees = NUM_TREES,
+  clusters = morocco$schoolunitid,
+  iters = 5)
+small_var_imp <- display_variable_imp(small_forest, baseline1)
+write_csv(small_var_imp, "paper_outputs/variables_table.csv")
+```
+
+
+How do we best think about variable importance instability? There are two forms of error here, Monte Carlo error and sampling error (akin to excess and debiased error originally)
+
+# Plot heterogeneity variables
+
+```{r}
+create_cowplot(morocco, X_vars[c(1,2, 4)], 
+               var_labels = c("Head gender", "Head age", "Head literacy"), as.data.frame(main_forest$predictions)) %>%
+  save_plot(filename = 'paper_outputs/figure3a.pdf', plot = .)
+
+create_cowplot(morocco, X_vars[c(3, 7)], var_labels = c("Monthly spending", "Beneficiary"), as.data.frame(main_forest$predictions)) %>%
+  save_plot(filename = 'paper_outputs/figure3b.pdf', plot = .)
+ 
+create_cowplot(morocco, X_vars[c(5,6)], var_labels = c("Age", "Gender"), as.data.frame(main_forest$predictions)) %>%
+  save_plot(filename = 'paper_outputs/figure3c.pdf', plot = .)
+
+# Important vars
+create_cowplot(morocco, small_var_imp$Variable[1:2], var_labels = c("School fee spend", "'Head's spouse shoes spend"), as.data.frame(main_forest$predictions)) %>%
+  save_plot(filename = 'paper_outputs/figure3d.pdf', plot = .)
+ 
+create_cowplot(morocco, small_var_imp$Variable[3:4], var_labels = c("Expected earnings from primary school", "Head shoes spend"), as.data.frame(main_forest$predictions)) %>%
+  save_plot(filename = 'paper_outputs/figure3e.pdf', plot = .)
+
+create_cowplot(morocco, small_var_imp$Variable[5:6], var_labels = c("Spend on travel", "Child activity between 12:00-12:30"), as.data.frame(main_forest$predictions)) %>%
+  save_plot(filename = 'paper_outputs/figure3f.pdf', plot = .)
+
+create_cowplot(morocco, small_var_imp$Variable[7:8], var_labels = c("Spend on female child shoes", "Amounted donated to mosque"), as.data.frame(main_forest$predictions)) %>%
+  save_plot(filename = 'paper_outputs/figure3g.pdf', plot = .)
+
+create_cowplot(morocco, small_var_imp$Variable[9:10], var_labels = c("Number of days head worked in main activity", "Amount own vegetables consumed"), as.data.frame(main_forest$predictions)) %>%
+  save_plot(filename = 'paper_outputs/figure3h.pdf', plot = .)
+```
+
+
+# Best linear projection
+
+```{r}
+blps <- map(get_scores(main_forest) %>% as.data.frame(), function(y) {
+  lm_df <- morocco %>%
+    select(all_of(X_vars), all_of(small_var_imp$Variable %>% head(15))) %>%
+    mutate_all(funs(median_split))
+  
+  num_missing <- lm_df %>%
+    map_int(~.x %>% is.na() %>% sum())
+  
+  lm_df <- lm_df %>%
+    select(which(num_missing < 1000))
+  
+  lm_df$Y <- y
+
+  list(
+    lm(Y ~ ., data = lm_df %>% select(Y, any_of(X_vars))),
+    lm(Y ~ ., data = lm_df %>% select(Y, any_of(small_var_imp$Variable))),
+    lm(Y ~ ., data = lm_df)
+    )
+})
+
+stargazer(
+  blps,
+  type = "html", # You can change this to "latex" for LaTeX output
+  title = "Regression Results",
+  dep.var.labels = c("Treatment 1", "Treatment 2", "Treatment 3"),
+  dep.var.caption = c("Doubly robust scores"),
+  column.labels = c("Theoretical variables", "High-importance variables", "Both"),
+  dep.var.labels.include = TRUE,
+  omit.table.layout = "n", # Omit notes and additional information
+  out = "paper_outputs/regression_table_multivariable.htm" # Specify the output file
+)
+```
+
+
+
+
+
+
