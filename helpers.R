@@ -222,31 +222,67 @@ get_vars_by_regex <- function(df, selector, num_selector, person_num, suffix = "
     right_join(df, by = c("hhid", "person" = paste0(person_num, "join")))
 }
 
-basu_forest <- function(X, Y, W, clusters, num.trees, iters=1, ret_list = FALSE) {
-  W <- as.factor(W)
+basu_forest <- function(X, Y, W, clusters, num.trees, iters=Inf, ret_list = FALSE, num_vars = 0) {
   for_list <- list()
+  What <- regression_forest(X, W, num.trees) %>% .$predictions %>% as.numeric()
+  Yhat <- regression_forest(X, Y, num.trees) %>% .$predictions %>% as.numeric()
   
-  for(i in 1:iters) {
-    forest <- multi_arm_causal_forest (
-      X, 
-      Y, 
-      W,
-      num.trees = NUM_TREES,
-      clusters = clusters
-    )
+  # Initialize progress bar
+  pb <- txtProgressBar(min = 0, max = iters, style = 3)
+  i <- 1
+  
+  while(ncol(X) > num_vars & i < iters + 1) {
+    # Update progress bar
+    setTxtProgressBar(pb, i)
     
+    if (length(unique(W)) > 2) {
+      W <- as.factor(W)
+      
+      forest <- multi_arm_causal_forest (
+        X, 
+        Y, 
+        W,
+        num.trees = num.trees, # Ensure this uses the function argument 'num.trees' correctly
+        clusters = clusters,
+        W.hat = What,
+        Y.hat = Yhat
+      )
+    }
+    else {
+      forest <- causal_forest (
+        X, 
+        Y, 
+        W,
+        num.trees = num.trees, # Ensure this uses the function argument 'num.trees' correctly
+        clusters = clusters,
+        W.hat = What,
+        Y.hat = Yhat
+      )
+    }
+    
+    # Assuming you are using dplyr for 'select' and 'which', make sure the library is loaded
     X <- X %>%
-      select(
+      dplyr::select(
         which(
           variable_importance(forest) > mean(variable_importance(forest))
-          )
         )
+      )
     for_list[[i]] <- forest
+    
+    i <- i + 1
   }
+  
+  # Close progress bar
+  close(pb)
   
   if (ret_list) return(for_list)
   for_list[[iters]]
+  
+  print(paste0("Finished in ", i, " iterations."))
+  
+  forest
 }
+
 
 
 display_variable_imp <- function(forest, labelled_data) {

@@ -66,6 +66,7 @@ joined <- baseline %>%
 
 baseline %<>%
   mutate(schoolunitid = factor(schoolunitid),
+         group_control = as.numeric(group != 0),
          group = car::recode(group, "0 = NA;"),
          group_cond = car::recode(group, "1=1; else=2")
   )
@@ -123,7 +124,7 @@ knowledge1 <- knowledge %>%
     program_knowledge = ksm_c4_1 == 6
   )
 
-joined1 <- baseline[c('hhid', 'group', 'group_cond', 'monthly_spending', 'schoolid')] %>%
+joined1 <- baseline[c('hhid', 'group', 'group_cond', 'group_control', 'monthly_spending', 'schoolid')] %>%
   left_join(num_kids, by = "hhid") %>%
   left_join(knowledge1, by = "hhid") %>%
   filter(!duplicated(hhid))
@@ -151,14 +152,14 @@ joined2 %<>%
 # Add endline ID to be able to join to maths data
 joined1 %<>%
   dplyr::inner_join(endline[c('hhid', 'hhid_endline')], by = 'hhid', suffix = c("", ".y")) %>%
-  inner_join(admin_data[c('hhid_endline', 'stud_id_tayssir', 'datenaiseleve', 'genre_el')], by = 'hhid_endline', suffix = c("", ".y")) %>%
+  left_join(admin_data[c('hhid_endline', 'stud_id_tayssir', 'datenaiseleve', 'genre_el')], by = 'hhid_endline', suffix = c("", ".y")) %>%
   select_at(
     vars(-ends_with(".y"))
   )
 
 joined2 %<>%
   dplyr::inner_join(endline[c('hhid', 'hhid_endline')], by = 'hhid', suffix = c("", ".y")) %>%
-  inner_join(admin_data[c('hhid_endline', 'stud_id_tayssir', 'datenaiseleve', 'genre_el')], by = 'hhid_endline', suffix = c("", ".y")) %>%
+  left_join(admin_data[c('hhid_endline', 'stud_id_tayssir', 'datenaiseleve', 'genre_el')], by = 'hhid_endline', suffix = c("", ".y")) %>%
   select_at(
     vars(-ends_with(".y"))
   )
@@ -170,7 +171,7 @@ joined_num2 <- joined2 %>%
 
 joined_num2[joined_num2 < 0] <- NA
 
-joined_num2 <- joined_num2[complete.cases(joined_num2[c("group", "maths_results")]),]
+joined_num2 <- joined_num2[complete.cases(joined_num2[c("maths_results")]),]
 
 
 
