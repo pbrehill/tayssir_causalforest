@@ -617,4 +617,30 @@ expand_node_encoding <- function(held_out_nodes) {
 }
 
 
+node.fun.se <- function(x, labs, digits, varlen)
+{
+  split_labs <- labs %>% str_split("\n")
+  s <- round(as.numeric(x$frame$se), 3) # round sd to 2 digits
+  outside_info <- list(est = x$frame$yval, se = s, n = x$frame$n) %>% transpose()
+  map2_chr(split_labs, outside_info, function(vec, info) {
+    sig_star <- ifelse(abs(info$est) > 1.96 * info$se, "*", "")
+    c(paste0(format(round(info$est, 3), nsmall = 3L), sig_star), paste0("(", format(round(info$se, 3), nsmall = 3L), ")"), info$n) %>%
+      paste(collapse = "\n")
+  })
+}
 
+
+plot_ddrct <- function(ddrct) {
+  # Edit model yval w DR estimates
+  results <- ddrct$estimates %>%
+    # mutate(est = round(est, 3), se = round(se, 3)) %>%
+    arrange(as.numeric(node))
+  
+  sorted_results <- results[as.numeric(row.names(ddrct$model$frame)),]
+  ddrct$model$frame$yval <- sorted_results$est
+  ddrct$model$frame$se <- sorted_results$se
+  ddrct$model$frame$n <- sorted_results$n
+  
+  # Get model scaffold
+  rpart.plot(ddrct$model, node.fun = node.fun.se, nn = TRUE, box.col  = "lightblue")
+}

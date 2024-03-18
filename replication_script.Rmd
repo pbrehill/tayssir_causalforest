@@ -192,8 +192,15 @@ write_clip(control_results)
 ```
 
 ```{r}
+plot_ddrct(forest_results)
+```
+
+
+```{r}
 rpart.plot(forest_results$model)
 ```
+
+
 
 # Binary conditioning analysis
 
@@ -244,20 +251,20 @@ ggsave("paper_outputs/time-use-values.png")
 
 
 ```{r}
-het_forest_results <- distilled_causal_tree(binary_forest, seed = seed, num_candidate_trees = 1000, replicates = 2000, maxdepth = 3)
+binary_forest_results <- distilled_causal_tree(binary_forest, seed = seed, num_candidate_trees = 1000, replicates = 2000, maxdepth = 3)
 ```
 
 ```{r}
-het_results <- het_forest_results$estimates  %>%
+binary_results <- binary_forest_results$estimates  %>%
   mutate(est = round(est, 3), se = round(se, 3)) %>%
   arrange(as.numeric(node))
 
-het_results
-write_clip(het_results)
+binary_results
+write_clip(binary_results)
 ```
 
 ```{r}
-rpart.plot(het_forest_results$model)
+plot_ddrct(binary_forest_results)
 ```
 
 
@@ -273,6 +280,11 @@ best_treat_results <- het_forest_results[[3]]$estimates  %>%
 best_treat_results
 write_clip(best_treat_results)
 ```
+
+```{r}
+plot_ddrct(het_forest_results[[3]])
+```
+
 
 
 
