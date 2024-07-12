@@ -285,7 +285,139 @@ write_clip(best_treat_results)
 plot_ddrct(het_forest_results[[3]])
 ```
 
+# Appendix analysis
 
+```{r}
+selected_vars <- c(
+     "h1_2",
+    "g11_a1_4",
+    "c_3_30_1_self",
+    "c_3_29_1_self",
+    "c_3_18_1_self",
+    "h1_16",
+    "c3_troisieme_en",
+    "d5_1",
+    "d1_2",
+    "d2_self",
+    "d5_2",
+    "e1_self",
+    "b4_1",
+    "d1_4"
+)
+
+appendix_variables <- binary_forest$X.orig[selected_vars]
+```
+
+```{r}
+variable_labels <- labelled::var_label(baseline)
+
+summary_stats <- appendix_variables %>%
+  summarise(
+    across(
+      everything(),  # Adjust this to specify columns if not all are desired
+      list(
+        mean = ~ mean(.x, na.rm = TRUE),
+        sd = ~ sd(.x, na.rm = TRUE),
+        min = ~ min(.x, na.rm = TRUE),
+        max = ~ max(.x, na.rm = TRUE),
+        median = ~ median(.x, na.rm = TRUE),
+        IQR = ~ IQR(.x, na.rm = TRUE)
+      ),
+      .names = "{.col}~{.fn}"  # Creates new column names dynamically
+    )
+  ) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = c("variable", ".value"),
+    names_sep = "~"
+)
+
+summary_stats %>% clipr::write_clip()
+summary_stats
+```
+
+```{r}
+library(scales)
+library(cowplot)
+
+plot_labs <- c(
+      "How much spent last week on couscous? (dh)",
+"Member 4 worked in activity 1 in last 12 months",
+"Test child: Activity from 17:00 to 17:30",
+"Test child: Activity from 16:30 to 17:00",
+"Test child: Activity from 11:00 to 11:30",
+"How much spent last week on transport to market/work? (dh)",
+"Third child aged 6-15yrs present in hh",
+"Child 1: Presently enrolled at school",
+"Child 2 between 6-15yrs in hh",
+"Test child: Member ID",
+"Child 2: Presently enrolled at school",
+"Test child: Amount spent since July 2007 in enrollment fee (dirhams)",
+"Roof material",
+"Child 4 between 6-15yrs in hh"
+    ) %>% str_wrap(30)
+
+appendix_variables[c(1,3,4,5,6,12)] %>%
+  map2(
+    .,
+    plot_labs[c(1,3,4,5,6,12)],
+    function(x, x_lab) {
+      p <- ggplot(data = NULL, aes(x=x))
+      if (max(x, na.rm = T) > 100) p <- p + geom_histogram()
+      else p <- p + geom_bar()
+      
+      p + labs(title = x_lab, y = "Count", x = "") + theme_classic() + theme(plot.title = element_text(size=18))
+    }
+  ) %>%
+  walk2(., 1:length(.), ~ggsave(paste0("appendix_plots/plot", .y, ".png"), .x))
+```
+
+```{r}
+freq_tables <- appendix_variables %>%
+  map(~.x %>% table %>% as.data.frame.table %>% `names<-`(c("Value", "Count")))
+
+freq_tables
+```
+```{r Time use values}
+
+tu_vars <- appendix_variables %>% select(starts_with("c_"))
+
+bl_tu_vars <- c("c3_3_30_1", "c3_3_29_1", "c3_3_18_1")
+
+bl_tu <- baseline[bl_tu_vars]
+
+tu_codes <- bl_tu %>% 
+  map_df(
+  ~ .x %>%
+  val_labels() %>% 
+  as.data.frame() %>% 
+  rownames_to_column("Value") %>%
+  `names<-`(c("Value", "Code"))
+  ) %>%
+  distinct() %>%
+  mutate(Code = as.character(Code))
+  
+
+
+
+tu_full <- tu_vars %>%
+  map(~.x %>% table %>% as.data.frame()) %>%
+  reduce(full_join, by = ".") %>%
+  `names<-`(c("Code", names(tu_vars))) %>%
+  mutate(Code = as.character(Code))
+
+tu_full <- tu_full %>%
+  full_join(tu_codes, by = c("Code"))
+
+tu_full[is.na(tu_full)] <- 0
+
+tu_full %>% clipr::write_clip()
+```
+
+
+```{r Time use table}
+baseline$c3_3_40_1 %>% val_labels() %>% as.data.frame() 
+```
 
 
 
